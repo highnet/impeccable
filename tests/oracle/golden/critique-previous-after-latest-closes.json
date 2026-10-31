@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "stdout": "<WS>/.impeccable/critique/<STAMP>__src-app-tsx.md\n",
+      "stderr": "",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "stdout": "{\n  \"snapshot_file\": \"<STAMP>__src-app-tsx.md\",\n  \"closed\": false,\n  \"stale\": null,\n  \"body\": \"---\\ntotal_score: 28\\nmax_score: 40\\ntarget_identity: \\\"file:<WS>/src/App.tsx\\\"\\ntimestamp: <STAMP>\\nslug: src-app-tsx\\n---\\n## Priority Issues\\n- [P1] One\\n\\n#### Next Point\\nH4 -> 3: one tick everywhere\\n\"\n}\n",
+      "stderr": "",
+      "exit": 0,
+      "signal": null
+    },
+    {
+      "stdout": "",
+      "stderr": "",
+      "exit": 2,
+      "signal": null
+    },
+    {
+      "stdout": "{\n  \"snapshot_file\": \"<STAMP>__src-app-tsx.md\",\n  \"closed\": true,\n  \"stale\": null,\n  \"body\": \"---\\ntotal_score: 28\\nmax_score: 40\\ntarget_identity: \\\"file:<WS>/src/App.tsx\\\"\\ntimestamp: <STAMP>\\nslug: src-app-tsx\\nclosed: true\\n---\\n## Priority Issues\\n- [P1] One\\n\\n#### Next Point\\nH4 -> 3: one tick everywhere\\n\"\n}\n",
+      "stderr": "",
+      "exit": 0,
+      "signal": null
+    }
+  ],
+  "files": {}
+}

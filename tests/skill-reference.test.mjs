@@ -93,6 +93,42 @@ describe('skill reference authoring contracts', () => {
     assert.doesNotMatch(polish, /git status|git log/);
   });
 
+  it('verifies the previous critique run without anchoring the scoring review (#1264)', () => {
+    const critique = readFileSync(join(ROOT, 'skill/reference/critique.md'), 'utf-8').replace(/\r\n?/g, '\n');
+    const invariants = critique.match(/### Hard Invariants\n([\s\S]*?)\n### Setup/)?.[1] ?? '';
+    const setup = critique.match(/### Setup\n([\s\S]*?)\n### Assessment Orchestration/)?.[1] ?? '';
+    const assessmentA = critique.match(/### Assessment A: Design Review\n([\s\S]*?)\n### Assessment C/)?.[1] ?? '';
+    const assessmentC = critique.match(/### Assessment C: Verification of the Previous Run\n([\s\S]*?)\n### Assessment B/)?.[1] ?? '';
+    const sinceLastRun = critique.match(/#### Since the Last Run\n([\s\S]*?)\n#### Design Specificity Verdict/)?.[1] ?? '';
+
+    // A stays blind to the previous run; only C reads it, and C never scores.
+    assert.match(invariants, /Assessment A never sees a previous run of this target/);
+    assert.match(invariants, /reaches only Assessment C, which checks it against the current target and never scores/);
+    assert.match(setup, /critique-storage previous "<resolved target>" --json/);
+    assert.match(setup, /Exit 2 means this is the first run/);
+    assert.match(setup, /Do not paste either into Assessment A's or B's brief/);
+    assert.doesNotMatch(assessmentA, /previous run|Assessment C/);
+    assert.match(assessmentC, /Nothing else from that run: not its score/);
+    assert.match(assessmentC, /C does not score, rank, or raise new issues/);
+    for (const status of ['fixed', 'partly fixed', 'not fixed', 'no longer applies']) {
+      assert.match(assessmentC, new RegExp(`\\*\\*${status}\\*\\*`));
+    }
+
+    // A writes the bars a later run checks, and does not deduct documented decisions.
+    assert.match(assessmentA, /\*\*Next point\*\*: for every heuristic scored below 4/);
+    assert.match(assessmentA, /\*\*Documented intent\*\*/);
+    assert.match(assessmentA, /do not deduct for it/);
+
+    // The synthesis reports progress, catches moved goalposts and reversals, and can call convergence.
+    assert.match(sinceLastRun, /\*\*Goalpost check\*\*/);
+    assert.match(sinceLastRun, /\*\*regression\*\*/);
+    assert.match(sinceLastRun, /\*\*newly seen\*\*/);
+    assert.match(sinceLastRun, /\*\*Reversals\*\*:[\s\S]*Move it to Questions to Consider/);
+    assert.match(sinceLastRun, /\*\*Convergence\*\*/);
+    assert.match(critique, /"prior_fixed":<n>,"prior_total":<n>,"bars_met":<n>,"bars_total":<n>,"converged":<true\|false>/);
+    assert.match(critique, /`#### Next Point` heading/);
+  });
+
   it('routes visual decision fallback through wait capability and start failure', () => {
     const newWork = readFileSync(join(ROOT, 'skill/reference/new-work.md'), 'utf-8').replace(/\r\n?/g, '\n');
     const visualDecisionPage = newWork.match(

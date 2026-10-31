@@ -1,0 +1,7 @@
+{
+  "stdout": "",
+  "stderr": "usage: previous <slug-or-target> [--json]\n",
+  "exit": 1,
+  "signal": null,
+  "files": {}
+}

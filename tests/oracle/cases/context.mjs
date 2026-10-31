@@ -624,6 +624,23 @@ const cases = [
   { id: 'critique-latest-none', verb: 'critique-storage', workspace: 'ctx-empty', args: ['latest', 'src/x.tsx'], env: env() },
   { id: 'critique-latest-existing', verb: 'critique-storage', workspace: 'ctx-full', args: ['latest', 'src/pages/index.astro'], env: env() },
   { id: 'critique-latest-other-slug', verb: 'critique-storage', workspace: 'ctx-full', args: ['latest', 'route-pricing'], env: env() },
+  // previous (#1264): the newest run of a target, read-only, open or closed.
+  { id: 'critique-previous-none', verb: 'critique-storage', workspace: 'ctx-empty', args: ['previous', 'src/x.tsx'], env: env() },
+  { id: 'critique-previous-existing', verb: 'critique-storage', workspace: 'ctx-full', args: ['previous', 'src/pages/index.astro', '--json'], env: env() },
+  { id: 'critique-previous-usage', verb: 'critique-storage', workspace: 'ctx-full', args: ['previous', 'src/pages/index.astro', '--yaml'], env: env() },
+  {
+    // `latest` closes a run whose target is gone; `previous` still reads it and
+    // never writes the closed flag itself (the snapshot's bytes are pinned).
+    id: 'critique-previous-after-latest-closes', verb: 'critique-storage', workspace: 'ctx-empty',
+    setup: (ws) => write(ws, 'body.md', '## Priority Issues\n- [P1] One\n\n#### Next Point\nH4 -> 3: one tick everywhere\n'),
+    env: env({ IMPECCABLE_CRITIQUE_META: JSON.stringify({ total_score: 28, max_score: 40 }) }),
+    steps: [
+      { args: ['write', 'src/App.tsx', `${WS}/body.md`] },
+      { args: ['previous', 'src/App.tsx', '--json'] },
+      { args: ['latest', 'src/App.tsx'] },
+      { args: ['previous', 'src/App.tsx', '--json'] },
+    ],
+  },
   { id: 'critique-trend-existing', verb: 'critique-storage', workspace: 'ctx-full', args: ['trend', 'src-pages-index-astro'], env: env() },
   { id: 'critique-trend-none', verb: 'critique-storage', workspace: 'ctx-full', args: ['trend', 'nothing-here', '3'], env: env() },
   { id: 'critique-write-usage', verb: 'critique-storage', workspace: 'ctx-full', args: ['write', 'src/pages/index.astro'], env: env() },

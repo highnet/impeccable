@@ -1,6 +1,6 @@
 ### Purpose
 
-Resolve one stable target, run two independent assessments, synthesize a design critique, persist a snapshot, and ask the user what to improve next. The chat response is the primary deliverable; the snapshot is an archive of that run.
+Resolve one stable target, run two independent assessments, synthesize a design critique, persist a snapshot, and ask the user what to improve next. When the target has a previous run, a third assessment verifies what that run asked for, so a run after fixes reports what they achieved. The chat response is the primary deliverable; the snapshot is an archive of that run.
 
 ### Hard Invariants
 
@@ -8,6 +8,7 @@ Resolve one stable target, run two independent assessments, synthesize a design 
 - Assessment A and B MUST run as two isolated sub-agents whenever a sub-agent/Task tool is exposed. Running them inline in this context is "possible" but is NOT permitted; it is a degraded run. Inline is allowed ONLY when no sub-agent tool exists (or the user declined, on harnesses that ask). Native platforms run A alone (see Assessment Orchestration).
 - If you degrade for any reason, the report's first line MUST be a banner: `⚠️ DEGRADED: single-context (<reason>)`. A silent degraded critique is a failed critique.
 - Assessment A must finish before detector findings enter the parent synthesis context. Detector output is deterministic, but it still anchors judgment.
+- Assessment A never sees a previous run of this target: not its snapshot, its score, its issues or its bars. The previous run reaches only Assessment C, which checks it against the current target and never scores. A stays unanchored; C is what lets a run after fixes say what they achieved.
 - A skipped detector is a failed critique run unless `impeccable detect` is missing or crashes after a real attempt, or the platform is native (see Assessment Orchestration).
 - Viewable targets require browser inspection when available.
 - Any local server started only for critique visualization must run in the background, have a recorded stop method, and be stopped before final reporting unless the user asks to keep it.
@@ -26,13 +27,20 @@ Resolve one stable target, run two independent assessments, synthesize a design 
    {{scripts_path}}/impeccable critique-storage slug "<resolved-path-or-url>"
    ```
    Every later command also accepts the resolved target directly and derives the same slug internally; never hand-write a slug. If this exits non-zero, skip persistence and trend for this run, but continue the critique.
-3. **Read `.impeccable/critique/ignore.md`** if it exists. Drop matching findings silently; it is the only prior-run input critique consumes.
+3. **Read `.impeccable/critique/ignore.md`** if it exists. Drop matching findings silently; it is the only prior-run input the assessments that score consume.
+4. **Find the previous run** of this target:
+   ```bash
+   {{scripts_path}}/impeccable critique-storage previous "<resolved target>" --json
+   ```
+   Exit 2 means this is the first run (or no run of this exact target exists): skip Assessment C. Otherwise the JSON's `body` is the previous report, open or closed, and `stale: true` says the target changed since (the usual case after fixes). Copy two parts of it verbatim for Assessment C and for nothing else: its **Priority Issues** and its **Next Point** list (an older snapshot has no Next Point list; verify its Priority Issues alone). Do not paste either into Assessment A's or B's brief, and do not read the previous score into your own synthesis until Assessment A has returned.
 
 ### Assessment Orchestration
 
 **Native platforms** (`ios` / `android` / `adaptive`): Assessment B does not apply, because `impeccable detect` and the browser overlay read only web markup. Run Assessment A alone in this context and skip both sub-agent gates below, the Codex permission question included: with no B there is nothing to isolate A from, so this is the complete native method and carries no degraded banner. Do not run `impeccable detect` on native source; its empty result reads as clean.
 
 Delegate Assessment A and Assessment B to separate sub-agents. They must not see each other's output. Do not show findings to the user until synthesis.
+
+When Setup found a previous run, delegate Assessment C (verification) to a third sub-agent in parallel with A and B, isolated from both: it sees the previous Priority Issues and Next Point list, and neither A's nor B's output. On a native platform C still runs (it reads the screens, not the detector). On a desktop app it takes its turn in the window after B, as B does after A. If sub-agents are unavailable, run C last, after A and B are recorded, under the same degraded banner.
 
 Sub-agent gate (all harnesses):
 - Unless a harness-specific gate below overrides this, spawn A and B as two isolated, parallel sub-agents whenever a sub-agent/Task tool is exposed. This is the default and is mandatory; do not run them inline because it is faster.
@@ -64,8 +72,27 @@ Evaluate:
 - **Cognitive load**: consult the [Cognitive Load Assessment](#cognitive-load-assessment) section below; report checklist failures and decision points with >4 visible options.
 - **Emotional journey**: peak-end rule, emotional valleys, reassurance at high-stakes moments.
 - **Nielsen heuristics**: consult the [Heuristics Scoring Guide](#heuristics-scoring-guide) section below; score all 10 heuristics 0-4, marking any heuristic the mode-applicability rule allows as `n/a` instead of forcing a number.
+- **Next point**: for every heuristic scored below 4, state the bar for its next point: one concrete, checkable change (the screen or element, and what must be true of it) that would earn it. "Every pick in the app shows the same selected frame and tick" is a bar; "improve consistency" is not. A later run verifies these bars, so write one you would accept as met if you saw it done.
+- **Documented intent**: where PRODUCT.md or DESIGN.md records a pattern as a deliberate decision (a rule with its reason, not a description of the current state), do not deduct for it. Name it under Questions to Consider with the cost you see, so the user can revisit the decision. Deduct only where the build departs from what the document decided.
+- **Outside the target**: report an issue whose cause lies outside the target (a shared component or style the target only uses, another screen), tagged `outside target`, without lowering the target's scores.
 
-Return: design-specificity verdict, heuristic scores, cognitive load, emotional journey, 2-3 strengths, 3-5 priority issues, persona red flags, minor observations, and provocative questions.
+Return: design-specificity verdict, heuristic scores, a Next Point bar for each heuristic below 4, cognitive load, emotional journey, 2-3 strengths, 3-5 priority issues, persona red flags, minor observations, and provocative questions.
+
+### Assessment C: Verification of the Previous Run
+
+Runs only when Setup found a previous run. Its brief carries the target, how to view it (the same URLs and viewports Assessment A uses), PRODUCT.md and DESIGN.md, and the previous run's Priority Issues and Next Point list, verbatim. Nothing else from that run: not its score, not its other findings.
+
+For each previous priority issue, look at the current target and return one status with its evidence (a screenshot path, a measurement, or file:line):
+- **fixed**: what the issue described is no longer true.
+- **partly fixed**: some of it is; say which part remains.
+- **not fixed**: it is still true as described.
+- **no longer applies**: the element or flow it was about is gone.
+
+For each Next Point bar, return **met** or **not met**, with the same kind of evidence.
+
+C does not score, rank, or raise new issues. When it notices something new, it leaves it: finding new problems is Assessment A's job, and a verifier that also reviews drifts into a second, anchored review.
+
+Return: a table of prior issues with status and evidence, and a table of bars with met or not met and evidence.
 
 ### Assessment B: Detector + Browser Evidence
 
@@ -126,7 +153,7 @@ Structure your feedback as a design director would:
 #### Report header provenance
 
 The report's first line MUST declare how the assessments were run, so a degraded run is never silent:
-- Dual-agent: `Method: dual-agent (A: <agent-id> · B: <agent-id>)`
+- Dual-agent: `Method: dual-agent (A: <agent-id> · B: <agent-id>)`, and with a previous run ` · verified (C: <agent-id>)`
 - Degraded: `⚠️ DEGRADED: single-context (<reason, e.g. no sub-agent tool exposed>)`
 - Native: `Method: design review only (detector not applicable, native platform)`
 
@@ -154,6 +181,18 @@ The applicable maximum is 4 times the number of heuristics you actually scored: 
 Be honest with scores. A 4 means genuinely excellent. Most real interfaces score 20-32 out of 40.
 
 **Mode applicability**: heuristics 7 (Flexibility and Efficiency) and 10 (Help and Documentation) may be scored `n/a` on Persuade and Experience surfaces (landing pages, campaigns, portfolios, bodies of work), as may any other heuristic that genuinely cannot apply to the surface under review. Write `n/a` in the Score cell with a one-line reason, and renormalize the total to the applicable maximum (e.g. **24/32** when two heuristics are n/a) so the rating band stays proportional. The persisted snapshot must record the applicable maximum and which heuristics were scored n/a.
+
+Under the table, list Assessment A's **Next Point** bars, one line per heuristic below 4: `H4 → 3: <bar>`.
+
+#### Since the Last Run
+
+Only when Assessment C ran. This section is what lets a run after fixes show what they achieved; Assessment A's score above stays as it scored, unanchored.
+
+- **Prior issues**: `<n> of <m> fixed` (`<k>` partly), then one line each: status, the issue's name, the evidence.
+- **Bars met**: `<n> of <m>`, one line each.
+- **Goalpost check**: for each heuristic whose previous bar C found **met** but whose score did not rise, quote A's key issue for it now and say which it is: a **regression** (introduced since the last run; it belongs in Priority Issues) or **newly seen** (present then too, and unreported). Decide from the code, not by feel: when the files behind the issue changed after the previous snapshot's `timestamp` (`git log --since=<timestamp>` over those paths), it may be a regression, so read that change; when they did not, it is newly seen. Without version control, write `cannot tell` rather than guessing. Say so plainly: "H8: last run's bar is met; the score held because this run raised a different issue that was already there." Never present a newly seen issue as if the fixes caused it.
+- **Reversals**: a priority issue this run raised whose fix would undo a previous issue C found **fixed** (the same element or behaviour, the opposite direction) is not a priority issue. Move it to Questions to Consider as a choice between the two, quoting both, and leave it out of the Priority Issues count.
+- **Convergence**: when C finds every previous P0 and P1 fixed, and no P0 or P1 this run raised is a regression (each is newly seen; one that `cannot tell` blocks the call), say: "Converged on the previous run: no regressions; what remains was there before and is a new choice, not unfinished work." A user chasing the score can stop here or take the new issues on as new work.
 
 #### Design Specificity Verdict
 
@@ -231,7 +270,7 @@ Once the report above is finalized, write it to `.impeccable/critique/` so the u
 
 Skip this step if the Setup slug was null (vague or root-level target).
 
-1. **Write the body to a temp file** so you can pipe it to the helper. Use the full critique report (heuristic table, design-specificity verdict, priority issues, persona red flags, minor observations, and questions), but stop before the "Ask the User" / "Recommended Actions" sections that come later.
+1. **Write the body to a temp file** so you can pipe it to the helper. Use the full critique report (heuristic table, the **Next Point** list under its own `#### Next Point` heading, Since the Last Run when it ran, design-specificity verdict, priority issues, persona red flags, minor observations, and questions), but stop before the "Ask the User" / "Recommended Actions" sections that come later. The Next Point list and Priority Issues are what the next run's Assessment C verifies, so keep their wording exact.
 
    This is a copy of the report you already delivered above, for later commands to read. It is not delivery. If you find yourself composing the report for the first time inside this heredoc, you have skipped Deliver the Report; go back and send it.
 
@@ -244,6 +283,7 @@ Skip this step if the Setup slug was null (vague or root-level target).
    IMPECCABLE_CRITIQUE_META='{"target":"<user phrasing>","total_score":<n>,"max_score":<n>,"na_heuristics":"<comma-separated numbers, or empty>","p0_count":<n>,"p1_count":<n>}' \
      {{scripts_path}}/impeccable critique-storage write "<resolved target>" <body-file>
    ```
+   When Assessment C ran, add `"prior_fixed":<n>,"prior_total":<n>,"bars_met":<n>,"bars_total":<n>,"converged":<true|false>` to the same JSON, so the trend can show progress the score does not.
    `max_score` is the applicable maximum from the heuristic table (40 when every heuristic applied), so a later run can tell a renormalized total from a full one. For a local file target, the helper also records an exact content fingerprint so polish can distinguish the assessed bytes from later edits without relying on Git state or timestamps. The helper prints the absolute path it wrote. Leave that file on disk. Polish closes it; this run does not.
 
 3. **Delete the temp body file** after the write attempt completes, whether the write succeeded or failed. If deletion fails, mention `temp-file cleanup failed: <reason>` briefly in the final output, but do not block the critique.
@@ -262,6 +302,8 @@ Skip this step if the Setup slug was null (vague or root-level target).
    Read `max_score` on each trend entry. When every entry shares one maximum, state it once as above. When they differ, print each score with its own denominator (`24/32 → 30/40`) and note that the runs scored different heuristic sets, so the line is not a like-for-like comparison. Treat a missing `max_score` on an older entry as 40.
 
    If this is the first run for the slug, the trend is just one score; say so: "First run for this target, no trend yet."
+
+   When the newest entry carries `prior_total`, add its progress to the same line: `· previous issues fixed 5 of 5 · bars met 4 of 5`, and `· converged` when `converged` is true.
 
 6. **Close the run.** Go to Ask the User below and emit the questions, or the `Questions skipped: <reason>` line when the count allows it. The run is not complete until you do. Persistence is bookkeeping and cleanup is not an ending; stopping here leaves the user with a report and no way forward, and leaves `{{command_prefix}}impeccable polish` with no priorities to inherit.
 
@@ -317,7 +359,7 @@ After presenting the summary, tell the user:
 
 > You can ask me to run these one at a time, all at once, or in any order you prefer.
 >
-> Re-run `{{command_prefix}}impeccable critique` after fixes to see your score improve.
+> Re-run `{{command_prefix}}impeccable critique` after fixes: it will check each of these against the build and say which landed, besides scoring afresh.
 
 ---
 

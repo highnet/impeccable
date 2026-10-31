@@ -606,6 +606,71 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
             }
             0
         }
+        "previous" => {
+            // The newest snapshot for this target, open or closed, fresh or stale, so a
+            // critique can verify what the previous run asked for. Read-only: unlike
+            // `latest`, it never closes a snapshot, and it reports staleness instead of
+            // refusing on it (a stale target is exactly one whose fixes have landed).
+            let target = rest.first().map(String::as_str).unwrap_or("");
+            let format = rest.get(1).map(String::as_str);
+            let slugs = slug_candidates(rest.first().map(String::as_str), &cwd);
+            let bad_format = format.map(|f| !f.is_empty() && f != "--json").unwrap_or(false);
+            if slugs.is_empty() || bad_format || rest.len() > 2 {
+                io.err("usage: previous <slug-or-target> [--json]\n");
+                return 1;
+            }
+            let format_is_json = format == Some("--json");
+            let target_path = resolve_local_target_path(target, &cwd);
+            let target_identity = resolve_target_identity(target, &cwd);
+            let ready_slug = is_ready_slug(target);
+            let Some(newest_for_slug) =
+                read_newest_safe_snapshot_for_slugs(&slugs, target_identity.as_deref(), &cwd, &env)
+            else {
+                return 2;
+            };
+            let mut previous =
+                read_newest_snapshot_for_identity_slugs(&slugs, target_identity.as_deref(), &cwd, &env);
+            if previous.is_none() && !ready_slug {
+                previous = slugs.first().and_then(|slug| read_newest_snapshot_for_identity(slug, None, &cwd, &env));
+            }
+            let previous = previous.unwrap_or(newest_for_slug);
+            // The same ownership rules as `latest`: never hand one target another's run.
+            let recorded_target_identity = snapshot_target_identity(&previous);
+            let matching_identity = recorded_target_identity == target_identity;
+            if ready_slug && target_path.as_deref().map(exists).unwrap_or(false) && !matching_identity {
+                io.err("ambiguous snapshot slug; use an explicit ./path or remove the local name collision\n");
+                return 2;
+            }
+            let concrete_target = !ready_slug || matching_identity;
+            if concrete_target && recorded_target_identity.is_some() && !matching_identity {
+                return 2;
+            }
+            // Stale: a local file target whose bytes differ from the assessed ones. Unknown
+            // (a URL, a directory, no recorded fingerprint) is reported as null.
+            let stale = if concrete_target && target_path.is_some() {
+                let recorded_fp = match previous.meta.get("target_fingerprint") {
+                    Some(Value::String(s)) => Some(s.clone()),
+                    _ => None,
+                };
+                match (recorded_fp, fingerprint_target(target, &cwd)) {
+                    (Some(a), Some(b)) => Value::Bool(a != b),
+                    _ => Value::Null,
+                }
+            } else {
+                Value::Null
+            };
+            if format_is_json {
+                let mut m = Map::new();
+                m.insert("snapshot_file".into(), Value::String(jsp::basename(&previous.path)));
+                m.insert("closed".into(), Value::Bool(meta_closed(&previous)));
+                m.insert("stale".into(), stale);
+                m.insert("body".into(), Value::String(previous.body.clone()));
+                io.out(&format!("{}\n", json_pretty(&Value::Object(m))));
+            } else {
+                io.out(&previous.body);
+            }
+            0
+        }
         "close" => {
             let slug_arg = rest.first().map(String::as_str).unwrap_or("");
             let snapshot_file = rest.get(1).map(String::as_str);
@@ -695,7 +760,7 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
             0
         }
         _ => {
-            io.err("usage: impeccable critique-storage <slug|write|latest|trend|close> [args]\n");
+            io.err("usage: impeccable critique-storage <slug|write|latest|previous|trend|close> [args]\n");
             1
         }
     }
@@ -859,6 +924,105 @@ mod tests_660 {
         let (code, _, _) = run_capture(&cwd, &["latest", "App.tsx"]);
         assert_eq!(code, 2);
 
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    /// Writes a snapshot through the `write` verb, as a critique run does.
+    fn write_snapshot(cwd: &str, target: &str, body: &str) -> String {
+        let body_file = jsp::join(&[cwd, "body.md"]);
+        std::fs::write(&body_file, body).unwrap();
+        let (code, out, err) = run_capture(cwd, &["write", target, &body_file]);
+        assert_eq!(code, 0, "write failed: {err}");
+        out.trim_end().to_string()
+    }
+
+    #[test]
+    fn previous_reads_a_stale_snapshot_without_closing_it() {
+        let cwd = tmp();
+        std::fs::write(jsp::join(&[&cwd, "App.tsx"]), "before\n").unwrap();
+        let path = write_snapshot(&cwd, "App.tsx", "## Priority Issues\n- [P1] One\n");
+
+        // Unchanged target: found, open, not stale.
+        let (code, out, _) = run_capture(&cwd, &["previous", "App.tsx", "--json"]);
+        assert_eq!(code, 0);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["closed"], Value::Bool(false));
+        assert_eq!(v["stale"], Value::Bool(false));
+        assert!(v["body"].as_str().unwrap().contains("[P1] One"));
+
+        // The fixes land: the target's bytes change. `previous` reports it stale and
+        // leaves the snapshot exactly as it was (no closed flag written).
+        std::fs::write(jsp::join(&[&cwd, "App.tsx"]), "after\n").unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+        let (code, out, _) = run_capture(&cwd, &["previous", "App.tsx", "--json"]);
+        assert_eq!(code, 0);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["stale"], Value::Bool(true));
+        assert_eq!(v["closed"], Value::Bool(false));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+
+        // `latest` refuses the stale snapshot and closes it; `previous` still reads it.
+        assert_eq!(run_capture(&cwd, &["latest", "App.tsx"]).0, 2);
+        let (code, out, _) = run_capture(&cwd, &["previous", "App.tsx", "--json"]);
+        assert_eq!(code, 0);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["closed"], Value::Bool(true));
+        assert!(v["body"].as_str().unwrap().contains("[P1] One"));
+
+        // Plain form prints the body verbatim, as `latest` does.
+        let (code, out, _) = run_capture(&cwd, &["previous", "App.tsx"]);
+        assert_eq!(code, 0);
+        assert!(out.contains("[P1] One") && out.starts_with("---"));
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    #[test]
+    fn previous_takes_the_newest_run_and_null_staleness_for_urls() {
+        let cwd = tmp();
+        let dir = jsp::join(&[&cwd, ".impeccable", "critique"]);
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = "---\ntarget_identity: \"url:http://example.com/pricing\"\nslug: example-com-pricing\n";
+        std::fs::write(jsp::join(&[&dir, "2026-05-12T18-30-00Z__example-com-pricing.md"]), format!("{id}---\n# Older\n")).unwrap();
+        std::fs::write(
+            jsp::join(&[&dir, "2026-05-13T09-00-00Z__example-com-pricing.md"]),
+            format!("{id}closed: true\n---\n# Newer\n"),
+        )
+        .unwrap();
+        let (code, out, _) = run_capture(&cwd, &["previous", "http://example.com/pricing", "--json"]);
+        assert_eq!(code, 0);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["snapshot_file"], Value::String("2026-05-13T09-00-00Z__example-com-pricing.md".into()));
+        assert_eq!(v["closed"], Value::Bool(true));
+        assert_eq!(v["stale"], Value::Null);
+        assert!(v["body"].as_str().unwrap().contains("# Newer"));
+        let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    #[test]
+    fn previous_refuses_another_targets_run_and_bad_usage() {
+        let cwd = tmp();
+        let dir = jsp::join(&[&cwd, ".impeccable", "critique"]);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Nothing yet: exit 2, no output.
+        let (code, out, _) = run_capture(&cwd, &["previous", "App.tsx"]);
+        assert_eq!((code, out.as_str()), (2, ""));
+
+        // A snapshot under this slug that records another file's identity is not ours.
+        let other = resolve_target_identity("elsewhere/App.tsx", &cwd).unwrap();
+        let slug = slug_from_target(Some("App.tsx"), &cwd).unwrap();
+        std::fs::write(
+            jsp::join(&[&dir, &format!("2026-05-12T18-30-00Z__{slug}.md")]),
+            format!("---\ntarget_identity: {}\nslug: {slug}\n---\n# Not ours\n", serde_json::to_string(&other).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(run_capture(&cwd, &["previous", "App.tsx"]).0, 2);
+
+        // Usage: no target, an unknown format, a stray argument.
+        for args in [&["previous"][..], &["previous", "App.tsx", "--yaml"], &["previous", "App.tsx", "--json", "x"]] {
+            let (code, _, err) = run_capture(&cwd, args);
+            assert_eq!(code, 1, "{args:?}");
+            assert_eq!(err, "usage: previous <slug-or-target> [--json]\n");
+        }
         let _ = std::fs::remove_dir_all(&cwd);
     }
 
