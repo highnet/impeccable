@@ -90,6 +90,8 @@ For each previous priority issue, look at the current target and return one stat
 
 For each Next Point bar, return **met** or **not met**, with the same kind of evidence.
 
+Credit only a change you can name. Before writing **fixed**, **partly fixed** or **met**, say what is different now from what the issue or bar describes: the value, the element, or the line of code that changed. Something the previous issue already described as present is not a change, so it earns nothing. Confirm each claim in the source as well as on screen; when the two disagree (a definition you think opens on tap, a rule you think wins), report the disagreement and give the lower status. A verifier that credits work nobody did is worse than none: the run would report progress that is not there.
+
 C does not score, rank, or raise new issues. When it notices something new, it leaves it: finding new problems is Assessment A's job, and a verifier that also reviews drifts into a second, anchored review.
 
 Return: a table of prior issues with status and evidence, and a table of bars with met or not met and evidence.
@@ -190,7 +192,7 @@ Only when Assessment C ran. This section is what lets a run after fixes show wha
 
 - **Prior issues**: `<n> of <m> fixed` (`<k>` partly), then one line each: status, the issue's name, the evidence.
 - **Bars met**: `<n> of <m>`, one line each.
-- **Goalpost check**: for each heuristic whose previous bar C found **met** but whose score did not rise, quote A's key issue for it now and say which it is: a **regression** (introduced since the last run; it belongs in Priority Issues) or **newly seen** (present then too, and unreported). Decide from the code, not by feel: when the files behind the issue changed after the previous snapshot's `timestamp` (`git log --since=<timestamp>` over those paths), it may be a regression, so read that change; when they did not, it is newly seen. Without version control, write `cannot tell` rather than guessing. Say so plainly: "H8: last run's bar is met; the score held because this run raised a different issue that was already there." Never present a newly seen issue as if the fixes caused it.
+- **Goalpost check**: for each heuristic whose previous bar C found **met** but whose score did not rise, quote A's key issue for it now and say which it is: a **regression** (introduced since the last run; it belongs in Priority Issues) or **newly seen** (present then too, and unreported). Decide from the code, not by feel: when the files behind the issue changed since the code the previous run assessed (`git diff <target_commit>` over those paths, from the snapshot's `target_commit`; failing that, `git log --since=<timestamp>`), it may be a regression, so read that change; when they did not, it is newly seen. Without version control, write `cannot tell` rather than guessing. Say so plainly: "H8: last run's bar is met; the score held because this run raised a different issue that was already there." Never present a newly seen issue as if the fixes caused it.
 - **Reversals**: a priority issue this run raised whose fix would undo a previous issue C found **fixed** (the same element or behaviour, the opposite direction) is not a priority issue. Move it to Questions to Consider as a choice between the two, quoting both, and leave it out of the Priority Issues count.
 - **Convergence**: when C finds every previous P0 and P1 fixed, and no P0 or P1 this run raised is a regression (each is newly seen; one that `cannot tell` blocks the call), say: "Converged on the previous run: no regressions; what remains was there before and is a new choice, not unfinished work." A user chasing the score can stop here or take the new issues on as new work.
 
@@ -283,7 +285,7 @@ Skip this step if the Setup slug was null (vague or root-level target).
    IMPECCABLE_CRITIQUE_META='{"target":"<user phrasing>","total_score":<n>,"max_score":<n>,"na_heuristics":"<comma-separated numbers, or empty>","p0_count":<n>,"p1_count":<n>}' \
      {{scripts_path}}/impeccable critique-storage write "<resolved target>" <body-file>
    ```
-   When Assessment C ran, add `"prior_fixed":<n>,"prior_total":<n>,"bars_met":<n>,"bars_total":<n>,"converged":<true|false>` to the same JSON, so the trend can show progress the score does not.
+   When Assessment C ran, add `"prior_fixed":<n>,"prior_total":<n>,"bars_met":<n>,"bars_total":<n>,"converged":<true|false>` to the same JSON, so the trend can show progress the score does not. In a git checkout, also add `"target_commit":"<git rev-parse HEAD>"`, plus `"target_dirty":true` when the target's files have uncommitted changes: the next run's goalpost check diffs from it.
    `max_score` is the applicable maximum from the heuristic table (40 when every heuristic applied), so a later run can tell a renormalized total from a full one. For a local file target, the helper also records an exact content fingerprint so polish can distinguish the assessed bytes from later edits without relying on Git state or timestamps. The helper prints the absolute path it wrote. Leave that file on disk. Polish closes it; this run does not.
 
 3. **Delete the temp body file** after the write attempt completes, whether the write succeeded or failed. If deletion fails, mention `temp-file cleanup failed: <reason>` briefly in the final output, but do not block the critique.

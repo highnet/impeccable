@@ -110,6 +110,9 @@ describe('skill reference authoring contracts', () => {
     assert.doesNotMatch(assessmentA, /previous run|Assessment C/);
     assert.match(assessmentC, /Nothing else from that run: not its score/);
     assert.match(assessmentC, /C does not score, rank, or raise new issues/);
+    // No credit without a named change, confirmed in the source (field test: two false credits).
+    assert.match(assessmentC, /Credit only a change you can name/);
+    assert.match(assessmentC, /Confirm each claim in the source as well as on screen/);
     for (const status of ['fixed', 'partly fixed', 'not fixed', 'no longer applies']) {
       assert.match(assessmentC, new RegExp(`\\*\\*${status}\\*\\*`));
     }
@@ -124,6 +127,9 @@ describe('skill reference authoring contracts', () => {
     assert.match(sinceLastRun, /\*\*regression\*\*/);
     assert.match(sinceLastRun, /\*\*newly seen\*\*/);
     assert.match(sinceLastRun, /\*\*Reversals\*\*:[\s\S]*Move it to Questions to Consider/);
+    // A regression is judged against the code the previous run assessed, not the clock.
+    assert.match(sinceLastRun, /git diff <target_commit>/);
+    assert.match(critique, /"target_commit":"<git rev-parse HEAD>"/);
     assert.match(sinceLastRun, /\*\*Convergence\*\*/);
     assert.match(critique, /"prior_fixed":<n>,"prior_total":<n>,"bars_met":<n>,"bars_total":<n>,"converged":<true\|false>/);
     assert.match(critique, /`#### Next Point` heading/);
