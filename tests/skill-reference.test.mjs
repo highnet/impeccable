@@ -127,6 +127,8 @@ describe('skill reference authoring contracts', () => {
     assert.match(sinceLastRun, /\*\*regression\*\*/);
     assert.match(sinceLastRun, /\*\*newly seen\*\*/);
     assert.match(sinceLastRun, /\*\*Reversals\*\*:[\s\S]*Move it to Questions to Consider/);
+    // A reversal already put to the user stays a question across runs (field test: R3 re-raised one).
+    assert.match(sinceLastRun, /stays a question, not a fresh priority issue, until the user has answered it/);
     // A regression is judged against the code the previous run assessed, not the clock.
     assert.match(sinceLastRun, /git diff <target_commit>/);
     assert.match(critique, /"target_commit":"<git rev-parse HEAD>"/);
